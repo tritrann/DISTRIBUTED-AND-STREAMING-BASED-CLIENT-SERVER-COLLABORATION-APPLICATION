@@ -64,6 +64,26 @@ class Server:
                     self.add_client_to_list(client_socket, client_address)
                     print(f"{client_socket} ")
                     print(f"{client_address}")
+                    
+    def close_client(self, client_socket):
+        client = self.client_dict.get(client_socket)
+        if client is None:
+            return
+        else:
+            conn_id = client["conn_id"]
+            username = client["username"]
+            client_address = client["address"]
+            try:
+                self.sel.unregister(client_socket)
+            except KeyError:
+                pass
+        
+            try:
+                client_socket.close()
+            except OSError:
+                pass
+            self.client_dict.pop(client_socket, None)
+            print(f"[LEAVE] conn#{conn_id} {username} {client_address} (total: {len(self.client_dict)}) ")
     
 if __name__ == "__main__":
     server = Server("0.0.0.0", 9000, 9001)
