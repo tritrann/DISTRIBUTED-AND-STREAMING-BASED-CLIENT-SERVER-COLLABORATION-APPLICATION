@@ -12,6 +12,7 @@ class Server:
         self.server_UDP_port = server_udp_port
         self.client_dict = {}
         self.connection_id = 0
+        self.running = True
         self.sel = selectors.DefaultSelector()
         
         
@@ -34,15 +35,7 @@ class Server:
             self.server_TCP_socket.close()
             raise
                         
-        while True:
-            try:
-                client_socket, client_address = self.server_TCP_socket.accept()
-                self.add_client_to_list(client_socket, client_address)
-                print(f"{client_socket}")
-                print(f"{client_address}")
-            except BlockingIOError:
-                print("No client connected yet...")
-                time.sleep(1)        
+        self.sel.register(self.server_TCP_socket, selectors.EVENT_READ, data= "LISTENER")       
                 
                 
     def add_client_to_list(self, client_socket, client_address):
@@ -61,5 +54,18 @@ class Server:
         client_socket.setblocking(False)
         self.client_dict[client_socket] = client
         self.sel.register(client_socket, selectors.EVENT_READ, data=client)
-            
-        
+                
+    def run(self):
+        while self.running:
+            event = self.sel.select(1.0)
+            for key, mask in event:
+                if key.data == "LISTENER":
+                    client_socket, client_address = self.server_TCP_socket.accept()
+                    self.add_client_to_list(client_socket, client_address)
+                    print(f"{client_socket} ")
+                    print(f"{client_address}")
+    
+if __name__ == "__main__":
+    server = Server("0.0.0.0", 9000, 9001)
+    server.start()
+    server.run()
