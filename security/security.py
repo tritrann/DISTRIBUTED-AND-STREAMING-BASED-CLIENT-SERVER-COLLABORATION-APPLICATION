@@ -201,4 +201,3 @@ class SecurePacket:
         encrypted = data[5:]
         plaintext = crypto.decrypt(encrypted, associated_data)
         return msg_type, plaintext
-```
