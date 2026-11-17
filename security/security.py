@@ -20,10 +20,8 @@ class AESGCMCrypto:
     def __init__(self, key: Optional[bytes] = None) -> None:
         if key is None:
             key = AESGCM.generate_key(bit_length=256)
-
         if len(key) != self.KEY_SIZE:
             raise ValueError(f"AES-256 key must be {self.KEY_SIZE} bytes")
-
         self._key = bytes(key)
         self._aesgcm = AESGCM(self._key)
 
@@ -40,7 +38,6 @@ class AESGCMCrypto:
             raise ValueError("PBKDF2 salt must be at least 16 bytes")
         if iterations < 100_000:
             raise ValueError("PBKDF2 iterations must be at least 100,000")
-
         key = hashlib.pbkdf2_hmac(
             "sha256",
             password.encode("utf-8"),
@@ -67,7 +64,6 @@ class AESGCMCrypto:
             raise TypeError("plaintext must be bytes")
         if not isinstance(associated_data, bytes):
             raise TypeError("associated_data must be bytes")
-
         nonce = os.urandom(self.NONCE_SIZE)
         ciphertext_and_tag = self._aesgcm.encrypt(
             nonce,
@@ -83,10 +79,8 @@ class AESGCMCrypto:
     ) -> bytes:
         if len(data) < self.NONCE_SIZE + self.TAG_SIZE:
             raise ValueError("Ciphertext is too short")
-
         nonce = data[: self.NONCE_SIZE]
         ciphertext_and_tag = data[self.NONCE_SIZE :]
-
         try:
             return self._aesgcm.decrypt(
                 nonce,
