@@ -44,7 +44,7 @@ class AESGCMCrypto:
             salt,
             iterations=iterations,
             dklen=cls.KEY_SIZE,
-        )
+        ) #Make it random
         return cls(key)
 
     @staticmethod
