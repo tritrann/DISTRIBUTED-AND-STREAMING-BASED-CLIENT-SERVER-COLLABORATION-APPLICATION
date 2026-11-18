@@ -4,10 +4,12 @@ import time
 import selectors
 import sys
 import json
+import secrets
 import argparse
 
+import config
 from common.framing import MAX_MESSAGE_SIZE, pack, split
-
+from server.auth import load_users, verify_user
 
 class Server:
     def __init__ (self, server_bind_host, server_tcp_port, server_udp_port):
@@ -18,10 +20,12 @@ class Server:
         self.connection_id = 0
         self.running = True
         self.message_handler = {
-            "HELLO" : self._on_hello
+            "HELLO" : self._on_hello,
+            "LOGIN" : self._on_login
         }
         self.sel = selectors.DefaultSelector()
-        
+        self.user_dict = load_users("server/data/users.json")
+        self.client_by_name = {}
         
     def start(self):
         self.server_TCP_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -96,7 +100,12 @@ class Server:
             except OSError:
                 pass
             self.client_dict.pop(client_socket, None)
-            print(f"[LEAVE] conn#{conn_id} {username} {client_address} (total: {len(self.client_dict)}) ")
+            if username is None:
+                print(f"[LEAVE] conn#{conn_id} guest {client_address} (total: {len(self.client_dict)}) ")
+            else:
+                if self.client_by_name.get(username) is client:
+                    self.client_by_name.pop(username)
+                print(f"[LEAVE] conn#{conn_id} {username} {client_address} (total: {len(self.client_dict)}) ")
             
     def _handle_client_read(self, key: selectors.SelectorKey):
         client_socket = key.fileobj
@@ -132,22 +141,26 @@ class Server:
             data = message.decode("utf-8")
             data = json.loads(data)
         except ValueError:
-            self._send_error(client, "invalid JSON")
+            self._send_error(client, "ERROR" ,"invalid JSON")
             return
         if not isinstance(data, dict):
-            self._send_error(client,"payload must be a JSON object" )
+            self._send_error(client,"ERROR","payload must be a JSON object" )
             return
         
         message_type = data.get("type")
         if not isinstance(message_type, str):
-            self._send_error(client, "missing or invalid type")
+            self._send_error(client, "ERROR" ,"missing or invalid type")
             return
         
         handler = self.message_handler.get(message_type)
         if handler is None:
-            self._send_error(client, f"unknown type: {message_type}")
+            self._send_error(client, "ERROR",f"unknown type: {message_type}")
             return
         
+        state = client["state"]
+        if state == "CONNECTED" and message_type not in {"HELLO", "LOGIN"}:
+            self._send_error(client, "ERROR", "not logged in")
+            return
         handler(client, data)
         
             
@@ -163,15 +176,52 @@ class Server:
             self.close_client(client["socket"])
             return False
         
-    def _send_error(self, client: dict, reason:str): 
+    def _send_error(self, client: dict, message_type: str ,reason:str): 
         conn_id = client["conn_id"]
-        print(f"[ERROR] conn#{conn_id} {reason}")
-        self._send(client, {"type": "ERROR", "reason": reason})
+        print(f"[{message_type}] conn#{conn_id} {reason}")
+        self._send(client, {"type": message_type, "reason": reason})
     
-    def _on_hello(self, client : dict, data):
+    def _on_hello(self, client : dict, data : dict):
         self._send(client, {"type": "HELLO_ACK", "conn_id": client["conn_id"]})
         conn_id = client["conn_id"]
         print(f"[HELLO] conn#{conn_id}")
+        
+    def _on_login(self, client : dict, data : dict):
+        conn_id = client["conn_id"]
+        client_state = client["state"]
+        if client_state != "CONNECTED":
+            self._send_error(client, "ERROR" ,"already logged in")
+            return
+        
+        username = data.get("username")
+        password = data.get("password")
+        if (not isinstance(username, str) or not isinstance(password,str) or len(username) == 0):
+            self._send_error(client, "LOGIN_FAIL", "invalid login request")
+            return
+        if len(username) > config.MAX_USERNAME_SIZE:
+            self._send_error(client, "LOGIN_FAIL", "username is too long")
+            return
+        
+        is_valid = verify_user(self.user_dict, username, password)
+        if is_valid == False:
+            self._send_error(client, "LOGIN_FAIL", "wrong username or password")
+            print(f"[LOGIN_FAIL] conn#{conn_id} username: {username}")
+            return
+        
+        if self.client_by_name.get(username) is not None:
+            self._send_error(client, "LOGIN_FAIL", "user already online")
+            return
+        
+        client["username"] = username
+        client["session_id"] = secrets.token_hex(16)
+        session_id = client["session_id"]
+        client_address = client["address"]
+        client["state"] = "AUTHENTICATED"
+        self.client_by_name[username] = client
+        self._send(client, {"type": "LOGIN_OK", "username": username,"session_id": session_id})
+        print(f"[LOGIN] conn#{conn_id} username= {username} from {client_address}")
+        
+          
     
     def shutdown(self):
         self.running = False
@@ -185,11 +235,13 @@ class Server:
             
     
 if __name__ == "__main__":
-    server = Server("0.0.0.0", 9000, 9001)
     try:
+        server = Server("0.0.0.0", 9000, 9001)
         server.start()
         server.run()
     except KeyboardInterrupt:
         server.shutdown()
     except OSError:
+        sys.exit(1)
+    except ValueError:
         sys.exit(1)
