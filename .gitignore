@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+tmp_test/
+.venv/
+venv/
+*.log
+client/downloads/
+.vscode/
+.idea/
