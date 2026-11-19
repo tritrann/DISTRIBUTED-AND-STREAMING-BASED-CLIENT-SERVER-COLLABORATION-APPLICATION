@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LAN Collab Chat</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Login screen -->
+  <main id="login-view" class="login">
+    <form id="login-form" class="card">
+      <h1>LAN Collab Chat</h1>
+      <p class="muted">Encrypted chat and file transfer over our own transport.</p>
+      <div class="row">
+        <label>Server IP<input id="host" value="127.0.0.1" required></label>
+        <label class="small">Port<input id="port" type="number" value="9000" required></label>
+      </div>
+      <label>Username<input id="username" autocomplete="username" required></label>
+      <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">Log in</button>
+      <p id="login-error" class="error"></p>
+      <p class="muted hint">Demo accounts: tri_demo, nam_demo, an_demo, binh_demo (password 123456)</p>
+    </form>
+  </main>
+
+  <!-- Chat screen -->
+  <div id="chat-view" class="app" hidden>
+    <header class="topbar">
+      <strong>LAN Collab Chat</strong>
+      <span id="status" class="status"><span class="dot"></span><span id="status-text">connecting</span></span>
+      <span id="stats" class="muted"></span>
+      <button id="logout" class="ghost">Log out</button>
+    </header>
+
+    <aside class="sidebar">
+      <h2>Online <span id="online-count" class="badge">0</span></h2>
+      <ul id="users"></ul>
+    </aside>
+
+    <section class="chat">
+      <div id="messages" class="messages"></div>
+      <form id="send-form" class="composer">
+        <span id="target" class="target">To: everyone</span>
+        <input id="text" placeholder="Type a message" autocomplete="off">
+        <label class="ghost file-btn" title="Send a file to the selected user">
+          File<input id="file" type="file" hidden>
+        </label>
+        <button type="submit">Send</button>
+      </form>
+    </section>
+
+    <aside class="transfers">
+      <h2>File transfers</h2>
+      <ul id="transfers"><li class="muted empty">No transfers yet</li></ul>
+    </aside>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -30,7 +30,6 @@ class ChatClient:
         self.stats = {"sent": 0, "received": 0, "bytes_sent": 0, "bytes_received": 0}
 
     def connect(self, host, port, timeout=5.0):
-        """Open the connection (raises OSError if the server is not reachable)."""
         self.sock = socket.create_connection((host, port), timeout=timeout)
         self.sock.settimeout(None)
         self.server = (host, port)
@@ -41,7 +40,6 @@ class ChatClient:
         self._emit({"type": "status", "text": f"connected to {host}:{port}"})
 
     def login(self, username, password, timeout=10.0):
-        """Return (True, "") or (False, reason)."""
         self.login_done.clear()
         self._send({"type": "LOGIN", "username": username, "password": password})
         if not self.login_done.wait(timeout):
@@ -152,7 +150,7 @@ class ChatClient:
                     continue
                 try:
                     self._handle(message)
-                except Exception as err:      # one bad message must not stop the reader
+                except Exception as err:      
                     self._emit({"type": "error", "reason": f"bad message: {err}"})
 
     def _handle(self, m):
@@ -173,7 +171,7 @@ class ChatClient:
             if m["username"] not in self.users:
                 self.users = sorted(self.users + [m["username"]])
             self._emit({"type": "join", "username": m["username"]})
-            self.request_users()          # refresh ip/port details
+            self.request_users()         
         elif kind == "LEAVE":
             self.users = [u for u in self.users if u != m["username"]]
             self.peers = [p for p in self.peers if p["username"] != m["username"]]
@@ -242,7 +240,7 @@ class ChatClient:
         base, ext = os.path.splitext(name)
         path = os.path.join(folder, name)
         n = 1
-        while os.path.exists(path):              # never overwrite an older download
+        while os.path.exists(path):             
             path = os.path.join(folder, f"{base} ({n}){ext}")
             n += 1
         with open(path, "wb") as out:
