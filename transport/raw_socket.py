@@ -1,23 +1,3 @@
-"""Socket-like transport for server.py.
-
-Who does what:
-  teacher's StreapRous (used unchanged, only to connect to other machines):
-      create_raw_socket()   raw socket
-      accept()              3-way handshake with a client
-      packet dispatcher     one packet queue per client (ip, port)
-  our design (design draft):
-      segment.py            packet structure + checksum           (part 1)
-      reliability.py        seq/ACK, sliding window, timer, resend (part 1)
-      flow_control.py       64 KB circular buffer, rwnd           (part 2)
-      congestion.py         Multi-Tier AIMD                       (part 3)
-  this file:
-      RawListener / RawConn look like normal sockets (fileno, setblocking,
-      accept, recv, sendall, close), so server.py can use selectors.
-      One worker thread per connection reads its queue, runs the timer and
-      sends what the windows allow.
-
-Needs Linux (or WSL) and root, because of the raw socket and iptables.
-"""
 
 import platform
 import queue
@@ -36,13 +16,11 @@ from transport.streaprous_packet_dispatcher import (
 from transport.reliability import ReliableConnection
 from transport.segment import build_segment, parse_segment
 
-LOSS_RATE = 0.0        # for testing only: drop this fraction of packets (both ways)
-TICK = 0.02            # the worker checks the timer every 20 ms
+LOSS_RATE = 0.0       
+TICK = 0.02           
 
 
 def set_rst_block(port, enable):
-    """No normal socket listens on our port, so the kernel would answer with RST.
-    Drop those RST packets while the server runs."""
     if platform.system() != "Linux":
         return
     action = "-A" if enable else "-D"
@@ -51,9 +29,6 @@ def set_rst_block(port, enable):
 
 
 class Notifier:
-    """A socketpair that is readable when the connection has something to read.
-    It gives the connection a real fileno() so selectors can watch it."""
-
     def __init__(self):
         self.reader, self.writer = socket.socketpair()
         self.reader.setblocking(False)
@@ -69,7 +44,7 @@ class Notifier:
                 self.reader.recv(16)
                 self.has_signal = False
         except OSError:
-            pass   # already closed
+            pass   
 
     def close(self):
         self.reader.close()
@@ -77,8 +52,6 @@ class Notifier:
 
 
 class RawConn:
-    """One accepted client."""
-
     def __init__(self, sock, info):
         self.sock = sock
         self.client_ip = info.client_ip
@@ -87,7 +60,6 @@ class RawConn:
         self.server_port = info.server_port
         self.key = (self.client_ip, self.client_port)
         self.queue = get_packet_queue(self.key)
-        # info.server_seq / client_seq: first data byte of each side after accept()
         self.conn = ReliableConnection(info.server_seq, info.client_seq, self._output)
         self.blocking = True
         self.lock = threading.Lock()
@@ -130,9 +102,7 @@ class RawConn:
         remove_packet_queue(self.key)
         with raw.connections_lock:
             raw.connections.pop(self.key, None)
-
-    # ---------- socket-like API for server.py ----------
-
+            
     def fileno(self):
         return self.notifier.reader.fileno()
 
@@ -168,7 +138,6 @@ class RawConn:
         return len(data)
 
     def close(self):
-        """Send what is left, then FIN. The worker finishes the close in the background."""
         with self.lock:
             self.conn.close()
         self.notifier.close()
@@ -181,13 +150,11 @@ class RawConn:
 
 
 class RawListener:
-    """Listening 'socket'. A thread calls the teacher's accept() in a loop and
-    puts each new RawConn in a ready list; accept() hands them out."""
 
     def __init__(self, ip, port):
         self.ip = ip
         self.port = port
-        self.sock = raw.create_raw_socket()   # exits if not root
+        self.sock = raw.create_raw_socket()   
         set_rst_block(port, True)
         self.ready = []
         self.conns = []
@@ -203,7 +170,7 @@ class RawListener:
             try:
                 info = raw.accept(self.sock, self.ip, self.port)
             except Exception:
-                break            # socket closed during shutdown
+                break           
             if info is None or not self.running:
                 continue
             conn = RawConn(self.sock, info)
@@ -232,7 +199,7 @@ class RawListener:
 
     def close(self):
         self.running = False
-        deadline = time.time() + 2    # let open connections finish their FIN
+        deadline = time.time() + 2    
         while time.time() < deadline and any(not c.closed for c in self.conns):
             time.sleep(0.05)
         stop_packet_dispatcher()

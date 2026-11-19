@@ -1,23 +1,3 @@
-"""HTTP gateway for the web UI (Step 9).
-
-A small HTTP/1.1 server written with the socket module (one thread per
-request, no web framework, no WebSocket). The browser page in ui/static/
-talks to it with fetch(); the gateway talks to the chat server with
-ChatClient, so the browser never touches the chat protocol itself.
-
-    browser  --HTTP/JSON-->  gateway (ChatClient)  --encrypted frames-->  server
-
-API (JSON in and out; the session token goes in the X-Token header):
-    POST /api/login     {host, port, username, password} -> {token, username}
-    GET  /api/poll?since=N                          -> new events + users + status
-    POST /api/send      {to, text}
-    POST /api/file      {to, name, data(base64)}    -> {file_id}
-    GET  /api/download?id=<file_id>&token=<token>   -> the received file
-    POST /api/logout
-
-Several browser tabs can log in as different users through one gateway.
-"""
-
 import argparse
 import base64
 import json
@@ -32,20 +12,18 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import config  # noqa: E402
-from client.client import ChatClient  # noqa: E402
+import config  
+from client.client import ChatClient 
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-MAX_BODY = 64 * 1024 * 1024        # biggest upload accepted from the browser
-SESSION_IDLE = 60                  # seconds without a poll -> log the user out
+MAX_BODY = 64 * 1024 * 1024       
+SESSION_IDLE = 60                  
 
 REASONS = {200: "OK", 204: "No Content", 400: "Bad Request", 401: "Unauthorized", 404: "Not Found",
            405: "Method Not Allowed", 413: "Payload Too Large", 500: "Internal Server Error"}
 
 
 class Session:
-    """One logged-in browser tab: a ChatClient plus the events it produced."""
-
     def __init__(self):
         self.token = secrets.token_hex(16)
         self.lock = threading.Lock()
@@ -72,10 +50,8 @@ sessions = {}
 sessions_lock = threading.Lock()
 
 
-# ---------------- HTTP plumbing ----------------
 
 def read_request(conn):
-    """Return (method, path, query, headers, body) or None if the client went away."""
     data = b""
     while b"\r\n\r\n" not in data:
         chunk = conn.recv(65536)
@@ -116,9 +92,6 @@ def send_response(conn, status, body=b"", content_type="application/json", extra
 def json_body(obj):
     return json.dumps(obj).encode("utf-8")
 
-
-# ---------------- routes ----------------
-
 def get_session(headers, query):
     token = headers.get("x-token") or query.get("token", "")
     with sessions_lock:
@@ -127,9 +100,7 @@ def get_session(headers, query):
         session.last_poll = time.time()
     return session
 
-
 def route(method, path, query, headers, body):
-    """Return (status, body bytes, content type, extra headers)."""
     if path == "/favicon.ico":
         return 204, b"", "image/x-icon", None
     if method == "GET" and (path == "/" or path.startswith("/static/")):
@@ -232,9 +203,6 @@ def api_login(data):
     return 200, json_body({"ok": True, "token": session.token,
                            "username": session.client.username}), "application/json", None
 
-
-# ---------------- server loop ----------------
-
 def handle_connection(conn, addr):
     try:
         conn.settimeout(30)
@@ -248,7 +216,7 @@ def handle_connection(conn, addr):
             send_response(conn, 413, json_body({"error": "request too large"}))
         except OSError:
             pass
-    except Exception as err:          # never let one request kill the gateway
+    except Exception as err:         
         print(f"[gateway] error for {addr}: {err}")
         try:
             send_response(conn, 500, json_body({"error": "internal error"}))
@@ -259,7 +227,6 @@ def handle_connection(conn, addr):
 
 
 def reap_idle_sessions():
-    """Log out tabs that were closed without pressing logout."""
     while True:
         time.sleep(10)
         now = time.time()

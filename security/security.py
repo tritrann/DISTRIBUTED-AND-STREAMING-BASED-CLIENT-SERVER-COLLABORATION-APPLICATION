@@ -16,10 +16,11 @@ class AESGCMCrypto:
     TAG_SIZE = 16
     KEY_SIZE = 32
     DEFAULT_PBKDF2_ITERATIONS = 600_000
-
+    
     def __init__(self, key: Optional[bytes] = None) -> None:
         if key is None:
             key = AESGCM.generate_key(bit_length=256)
+
         if len(key) != self.KEY_SIZE:
             raise ValueError(f"AES-256 key must be {self.KEY_SIZE} bytes")
         self._key = bytes(key)
@@ -44,7 +45,7 @@ class AESGCMCrypto:
             salt,
             iterations=iterations,
             dklen=cls.KEY_SIZE,
-        ) #Make it random
+        )
         return cls(key)
 
     @staticmethod
@@ -92,7 +93,6 @@ class AESGCMCrypto:
                 "Authentication failed: wrong key or packet was modified"
             ) from exc
 
-
 @dataclass
 class ClientSecurityState:
     last_seen: float = field(default_factory=time.monotonic)
@@ -100,11 +100,9 @@ class ClientSecurityState:
     missed_heartbeats: int = 0
     is_alive: bool = True
     pending_pings: Dict[int, float] = field(default_factory=dict)
-
     cubic: "CubicCongestionControl" = field(
         default_factory=lambda: CubicCongestionControl()
     )
-
 
 class HeartbeatManager:
     def __init__(
@@ -119,28 +117,35 @@ class HeartbeatManager:
             raise ValueError("ack_timeout must be positive")
         if max_missed < 1:
             raise ValueError("max_missed must be at least 1")
-
         self.heartbeat_interval = heartbeat_interval
         self.ack_timeout = ack_timeout
         self.max_missed = max_missed
-
+        
     def on_packet_received(self, state: ClientSecurityState) -> None:
-        state.last_seen = time.monotonic()
-
+        if state.is_alive:
+            state.last_seen = time.monotonic()
+            
     def should_send_ping(self, state: ClientSecurityState) -> bool:
-        now = time.monotonic()
-        return state.is_alive and (
-            now - state.last_heartbeat_sent >= self.heartbeat_interval
+        if not state.is_alive or state.pending_pings:
+            return False
+        return (
+            time.monotonic() - state.last_heartbeat_sent
+            >= self.heartbeat_interval
         )
-
+        
     def mark_ping_sent(
         self,
         state: ClientSecurityState,
         ping_id: int,
     ) -> None:
+        if isinstance(ping_id, bool) or not isinstance(ping_id, int):
+            raise TypeError("ping_id must be an integer")
         if not 0 <= ping_id <= 0xFFFFFFFF:
             raise ValueError("ping_id must be an unsigned 32-bit integer")
-
+        if not state.is_alive:
+            raise RuntimeError("Cannot send heartbeat to a dead client")
+        if state.pending_pings:
+            raise RuntimeError("A heartbeat is already awaiting an ACK")
         now = time.monotonic()
         state.last_heartbeat_sent = now
         state.pending_pings[ping_id] = now
@@ -150,35 +155,32 @@ class HeartbeatManager:
         state: ClientSecurityState,
         ping_id: int,
     ) -> bool:
+        if not state.is_alive:
+            return False
         sent_at = state.pending_pings.pop(ping_id, None)
         if sent_at is None:
             return False
-
         state.last_seen = time.monotonic()
         state.missed_heartbeats = 0
-        state.is_alive = True
-
-        for old_ping_id, old_sent_at in list(state.pending_pings.items()):
-            if old_sent_at <= sent_at:
-                del state.pending_pings[old_ping_id]
-
         return True
 
     def check_timeout(self, state: ClientSecurityState) -> bool:
+        if not state.is_alive:
+            return True
         now = time.monotonic()
-        expired_ids = [
+        expired = [
             ping_id
             for ping_id, sent_at in state.pending_pings.items()
             if now - sent_at >= self.ack_timeout
         ]
-
-        for ping_id in expired_ids:
-            del state.pending_pings[ping_id]
+        if expired:
+            for ping_id in expired:
+                del state.pending_pings[ping_id]
             state.missed_heartbeats += 1
 
         if state.missed_heartbeats >= self.max_missed:
             state.is_alive = False
-
+            state.pending_pings.clear()
         return not state.is_alive
 
     def safe_close(self, server: object, client_socket: object) -> None:
@@ -187,8 +189,7 @@ class HeartbeatManager:
             close_client(client_socket)
         except Exception as exc:
             print(f"[HEARTBEAT] Could not close client safely: {exc}")
-
-
+            
 class CubicCongestionControl:
     def __init__(
         self,
@@ -209,116 +210,116 @@ class CubicCongestionControl:
             raise ValueError("beta must be between 0 and 1")
         if C <= 0:
             raise ValueError("C must be positive")
-
         self.cwnd = max(initial_cwnd, min_cwnd)
         self.ssthresh = initial_ssthresh
         self.min_cwnd = min_cwnd
         self.mss = mss
         self.beta = beta
         self.C = C
-
         self.w_max = self.cwnd
         self.epoch_start: Optional[float] = None
         self.origin_point = self.cwnd
         self.K = 0.0
-
         self.in_slow_start = self.cwnd < self.ssthresh
         self.packet_count = 0
         self.last_loss_time = 0.0
-
+        
     def on_ack(self, acked_packets: int = 1) -> None:
-        if acked_packets <= 0:
+        if isinstance(acked_packets, bool) or not isinstance(acked_packets, int):
+            raise TypeError("acked_packets must be an integer")
+        if acked_packets < 0:
+            raise ValueError("acked_packets cannot be negative")
+        if acked_packets == 0:
             return
-
+        if acked_packets > self.packet_count:
+            raise ValueError(
+                "ACK count exceeds the number of packets currently in flight"
+            )        
+        self.packet_count -= acked_packets
         if self.in_slow_start:
             self.cwnd += acked_packets
-
             if self.cwnd >= self.ssthresh:
                 self.cwnd = max(self.cwnd, self.ssthresh)
                 self.in_slow_start = False
                 self._start_cubic_epoch()
         else:
             self._cubic_update(acked_packets)
-
-        self.packet_count = max(0, self.packet_count - acked_packets)
-
+            
     def on_loss(self) -> None:
         now = time.monotonic()
-
         if now - self.last_loss_time < 0.1:
             return
-
         self.last_loss_time = now
         self.w_max = self.cwnd
         self.ssthresh = max(self.cwnd * self.beta, self.min_cwnd)
         self.cwnd = self.ssthresh
         self.in_slow_start = False
-        self.packet_count = 0
         self._start_cubic_epoch()
-
+        
     def can_send(self) -> bool:
         return self.packet_count < max(1, int(self.cwnd))
-
+        
     def on_packet_sent(self) -> None:
         if not self.can_send():
             raise RuntimeError("Congestion window is full")
         self.packet_count += 1
-
+        
+    def on_packet_abandoned(self, packets: int = 1) -> None:
+        if isinstance(packets, bool) or not isinstance(packets, int):
+            raise TypeError("packets must be an integer")
+        if packets < 0:
+            raise ValueError("packets cannot be negative")
+        if packets > self.packet_count:
+            raise ValueError("cannot abandon more packets than are in flight")
+        self.packet_count -= packets
+        
     def on_packet_acked(self, acked_packets: int = 1) -> None:
         self.on_ack(acked_packets)
-
+        
     def get_send_rate_bytes_per_sec(self, rtt: float = 0.05) -> float:
         if rtt <= 0:
             raise ValueError("RTT must be positive")
         return (self.cwnd * self.mss) / rtt
-
+        
     def _start_cubic_epoch(self) -> None:
         self.epoch_start = time.monotonic()
         self.origin_point = self.w_max
         self.K = (
             (self.w_max * (1.0 - self.beta) / self.C) ** (1.0 / 3.0)
         )
-
+        
     def _cubic_update(self, acked_packets: int) -> None:
         if self.epoch_start is None:
             self._start_cubic_epoch()
-
         assert self.epoch_start is not None
         elapsed = time.monotonic() - self.epoch_start
-
         target = (
             self.C * ((elapsed - self.K) ** 3)
             + self.origin_point
         )
-
         if target > self.cwnd:
             increase = (target - self.cwnd) / max(self.cwnd, 1.0)
             self.cwnd += min(increase, float(acked_packets))
-        else:
+        else:   
             self.cwnd += acked_packets / max(self.cwnd, 1.0)
-
         self.cwnd = max(self.cwnd, self.min_cwnd)
-
 
 class SecurePacket:
     TYPE_DATA = 0x01
     TYPE_HEARTBEAT = 0x02
     TYPE_ACK = 0x03
     TYPE_CONTROL = 0x04
-
     LENGTH_SIZE = 4
-    HEADER_SIZE = 9
+    HEADER_SIZE = 9  
     SEQUENCE_SIZE = 4
     MIN_PACKET_SIZE = HEADER_SIZE + AESGCMCrypto.NONCE_SIZE + AESGCMCrypto.TAG_SIZE
     MAX_PACKET_SIZE = 1200
-
     VALID_TYPES = {
         TYPE_DATA,
         TYPE_HEARTBEAT,
         TYPE_ACK,
         TYPE_CONTROL,
     }
-
     @staticmethod
     def pack(
         msg_type: int,
@@ -332,7 +333,6 @@ class SecurePacket:
             raise ValueError("sequence_number must be an unsigned 32-bit integer")
         if not isinstance(plaintext, bytes):
             raise TypeError("plaintext must be bytes")
-
         encrypted_size = (
             AESGCMCrypto.NONCE_SIZE
             + len(plaintext)
@@ -340,15 +340,12 @@ class SecurePacket:
         )
         length = 1 + SecurePacket.SEQUENCE_SIZE + encrypted_size
         total_size = SecurePacket.LENGTH_SIZE + length
-
         if total_size > SecurePacket.MAX_PACKET_SIZE:
             raise ValueError(
                 f"Packet is {total_size} bytes; maximum is "
                 f"{SecurePacket.MAX_PACKET_SIZE} bytes"
             )
-
         header = struct.pack("!IBI", length, msg_type, sequence_number)
-
         encrypted = crypto.encrypt(
             plaintext,
             associated_data=header,
@@ -364,15 +361,12 @@ class SecurePacket:
             raise ValueError("Packet is too short")
         if len(data) > SecurePacket.MAX_PACKET_SIZE:
             raise ValueError("Packet exceeds maximum size")
-
         length, msg_type, sequence_number = struct.unpack(
             "!IBI",
             data[: SecurePacket.HEADER_SIZE],
         )
-
         if length != len(data) - SecurePacket.LENGTH_SIZE:
             raise ValueError("Invalid packet length")
-
         if msg_type not in SecurePacket.VALID_TYPES:
             raise ValueError("Invalid message type")
 
@@ -383,5 +377,4 @@ class SecurePacket:
             encrypted,
             associated_data=header,
         )
-
         return msg_type, sequence_number, plaintext

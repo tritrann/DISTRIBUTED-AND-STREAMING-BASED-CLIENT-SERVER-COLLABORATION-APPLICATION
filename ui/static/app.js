@@ -1,7 +1,3 @@
-// Web UI (Step 9): plain JavaScript in the browser, no framework.
-// It talks only to the local HTTP gateway (ui/gateway.py) with fetch():
-// log in, poll for new events every 500 ms, send messages and files.
-
 const state = { token: null, me: null, since: 0, target: "*", transfers: {}, polling: false };
 const $ = (id) => document.getElementById(id);
 
@@ -16,8 +12,6 @@ async function api(path, body) {
   if (res.status === 401) { showLogin("Session ended, please log in again."); throw new Error("401"); }
   return res.json();
 }
-
-// ---------- login / logout ----------
 
 $("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -50,7 +44,6 @@ function showLogin(message) {
   $("login-error").textContent = message;
 }
 
-// ---------- polling ----------
 
 async function poll() {
   state.polling = true;
@@ -91,7 +84,6 @@ function handleEvent(ev) {
   }
 }
 
-// ---------- rendering ----------
 
 function renderStatus(r) {
   const el = $("status");
@@ -209,7 +201,7 @@ function kb(n) {
   return n + " B";
 }
 
-// ---------- sending ----------
+
 
 $("send-form").addEventListener("submit", async (e) => {
   e.preventDefault();
