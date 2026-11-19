@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Chat</title>
+    <link rel="icon" href="/images/favicon.ico">
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+    <main class="container">
+        <header class="page-header">
+            <h1>Local Chat</h1>
+            <p>Chat with people on your network.</p>
+        </header>
+
+        <section class="panel login-panel">
+            <picture>
+                <source srcset="/images/welcome.png" type="image/png">
+                <img class="welcome-image" src="/images/welcome.jpg" alt="Welcome">
+            </picture>
+            <h2>Sign in</h2>
+            <form id="login-form">
+                <label for="username">Username</label>
+                <input id="username" name="username" type="text" required>
+
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" required>
+
+                <button type="submit">Sign in</button>
+            </form>
+            <p id="login-status" class="status">Login service is not connected yet.</p>
+        </section>
+
+        <section class="chat-layout">
+            <aside class="panel sidebar">
+                <h2>Channels</h2>
+                <p>General</p>
+                <hr>
+                <h2>Online</h2>
+                <p>Waiting for server.</p>
+            </aside>
+
+            <section class="panel conversation">
+                <h2>General</h2>
+                <section class="messages">
+                    <p>No messages yet.</p>
+                </section>
+                <p class="status">Chat service is not connected yet.</p>
+                <form id="message-form" class="message-form">
+                    <input type="text" placeholder="Type a message..." disabled>
+                    <button type="button" disabled>Send</button>
+                </form>
+            </section>
+
+            <aside class="panel file-panel">
+                <h2>File transfer</h2>
+                <input type="file" disabled>
+                <progress value="0" max="100"></progress>
+                <p>Waiting for file service.</p>
+            </aside>
+        </section>
+
+        <footer>
+            <p>StreapRous WebApp</p>
+        </footer>
+    </main>
+
+    <script>
+        const loginForm = document.getElementById("login-form");
+        const loginStatus = document.getElementById("login-status");
+
+        loginForm.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            loginStatus.textContent = "Sending request...";
+
+            const data = {
+                username: document.getElementById("username").value,
+                password: document.getElementById("password").value
+            };
+
+            try {
+                const response = await fetch("/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                loginStatus.textContent = result.message || "Request completed.";
+            } catch (error) {
+                loginStatus.textContent = "Could not reach the web server.";
+            }
+        });
+    </script>
+</body>
+</html>
