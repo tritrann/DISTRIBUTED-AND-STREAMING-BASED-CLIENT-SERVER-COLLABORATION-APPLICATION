@@ -1,19 +1,6 @@
-"""Flow control (design draft, part 2).
-
-The receiver keeps a fixed 64 KB circular buffer. The network thread writes
-at the write pointer, the application reads at the read pointer; both wrap
-around the same array, so reading frees space at once without moving data.
-A mutex protects the two pointers from the two threads.
-
-rwnd = free space in this buffer. It is sent back in every ACK (Window field),
-and the sender never has more unacknowledged bytes in flight than the
-receiver's last rwnd. Data that does not fit is not accepted (not ACKed), so
-the buffer can never overflow.
-"""
-
 import threading
 
-BUFFER_SIZE = 65535        # 64 KB, the largest value the 16-bit Window field can carry
+BUFFER_SIZE = 65535
 
 
 class ReceiveBuffer:
